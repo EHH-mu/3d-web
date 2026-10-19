@@ -1,0 +1,1409 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NEO-PRISM 3D — 交互式三维光影与粒子实验室</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #05070f;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      color: #f8fafc;
+    }
+    .font-mono-tech {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    #webgl-container {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      cursor: grab;
+    }
+    #webgl-container:active {
+      cursor: grabbing;
+    }
+    .glass-panel {
+      background: rgba(10, 15, 30, 0.72);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    }
+    .glass-pill {
+      background: rgba(15, 23, 42, 0.78);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+    }
+    input[type="range"] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      outline: none;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent-color, #00f3ff);
+      box-shadow: 0 0 10px var(--accent-color, #00f3ff);
+      cursor: pointer;
+      transition: transform 0.15s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    .active-chip {
+      background: linear-gradient(135deg, rgba(0, 243, 255, 0.25), rgba(255, 0, 127, 0.25));
+      border-color: var(--accent-color, #00f3ff) !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 15px rgba(0, 243, 255, 0.25);
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 999px;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.05); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .animate-pulse-slow {
+      animation: pulse-ring 3s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="relative select-none">
+
+  <!-- 3D WebGL Canvas Mount -->
+  <div id="webgl-container" aria-label="3D 交互画布"></div>
+
+  <!-- Ambient Top Vignette & Scanline Subtle Overlay -->
+  <div class="pointer-events-none fixed inset-0 z-10 bg-gradient-to-b from-slate-950/60 via-transparent to-slate-950/80"></div>
+
+  <!-- Top Navigation & Telemetry Bar -->
+  <header id="top-bar" class="fixed top-0 left-0 right-0 z-20 flex flex-wrap items-center justify-between gap-2 px-4 py-3 md:px-6 transition-all duration-300">
+    <!-- Brand Title -->
+    <div class="flex items-center gap-3">
+      <div class="relative flex h-10 w-10 items-center justify-center rounded-xl glass-pill border border-cyan-400/40 shadow-lg shadow-cyan-500/10">
+        <span class="h-3 w-3 rounded-full bg-cyan-400 animate-ping absolute"></span>
+        <span class="h-3 w-3 rounded-full bg-cyan-300 relative"></span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-base md:text-lg font-bold tracking-wider text-white">NEO-PRISM <span class="text-cyan-400 font-mono-tech text-xs px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-400/30">WEBGL 3D</span></h1>
+        </div>
+        <p class="text-xs text-slate-400 hidden sm:block">实时三维几何形态与粒子力场互动空间 · 拖拽旋转 / 滚轮缩放 / 点击释放脉冲</p>
+      </div>
+    </div>
+
+    <!-- View Mode Switcher -->
+    <nav class="flex items-center gap-1.5 glass-pill p-1 rounded-xl" aria-label="视图模式切换">
+      <button id="tab-studio" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium transition-all active-chip">
+        控制台视图
+      </button>
+      <button id="tab-gallery" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all">
+        预设展厅
+      </button>
+      <button id="tab-zen" type="button" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white transition-all">
+        纯净全屏
+      </button>
+    </nav>
+
+    <!-- Live Telemetry & Quick Tools -->
+    <div class="hidden lg:flex items-center gap-3">
+      <div class="glass-pill px-3 py-1.5 rounded-xl flex items-center gap-4 text-xs font-mono-tech text-slate-300">
+        <div>FPS <span id="hud-fps" class="text-emerald-400 font-semibold">60</span></div>
+        <div class="h-3 w-px bg-white/15"></div>
+        <div>粒子 <span id="hud-particles" class="text-cyan-400 font-semibold">3,200</span></div>
+        <div class="h-3 w-px bg-white/15"></div>
+        <div>视角 <span id="hud-coords" class="text-fuchsia-400 font-semibold">45° / 28°</span></div>
+      </div>
+      <button id="btn-audio-toggle" type="button" class="glass-pill px-3 py-2 rounded-xl text-xs font-medium text-slate-200 hover:border-cyan-400/50 transition-all flex items-center gap-1.5" title="切换交互合成音效">
+        <span id="audio-icon">🔊</span>
+        <span id="audio-label">音效开启</span>
+      </button>
+      <button id="btn-snapshot" type="button" class="glass-pill px-3 py-2 rounded-xl text-xs font-medium text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/20 transition-all flex items-center gap-1.5">
+        <span>📸</span>
+        <span>截图保存</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Floating Restore UI Button (Only visible in Zen Mode) -->
+  <button id="btn-exit-zen" type="button" class="hidden fixed bottom-6 right-6 z-30 glass-panel px-4 py-2.5 rounded-full text-xs font-semibold text-cyan-300 border border-cyan-400/40 shadow-lg hover:bg-cyan-500/20 transition-all">
+    ✨ 退出纯净模式 (显示控制面板)
+  </button>
+
+  <!-- Toast Notification -->
+  <div id="toast-banner" class="pointer-events-none fixed top-20 left-1/2 -translate-x-1/2 z-40 opacity-0 transition-all duration-300 transform -translate-y-2">
+    <div class="glass-panel px-4 py-2 rounded-full border border-cyan-400/40 text-xs font-medium text-cyan-200 shadow-xl flex items-center gap-2">
+      <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+      <span id="toast-text">已触发超维能量脉冲</span>
+    </div>
+  </div>
+
+  <!-- Main Studio HUD Overlay -->
+  <main id="studio-hud" class="pointer-events-none fixed inset-0 z-20 flex flex-col justify-between pt-20 pb-4 px-4 md:px-6">
+    <div class="flex flex-1 items-start justify-between gap-4 overflow-hidden">
+
+      <!-- Left Quick Scene Description & Interactive Hints -->
+      <section class="pointer-events-auto hidden md:flex flex-col gap-3 w-72 glass-panel p-4 rounded-2xl">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] font-mono-tech uppercase tracking-widest text-cyan-400" id="scene-badge">SCENE 01 // TORUS KNOT</span>
+          <span class="text-[11px] font-mono-tech text-slate-400" id="render-badge">HYBRID SHADER</span>
+        </div>
+        <h2 id="scene-title" class="text-lg font-bold text-white leading-snug">超维莫比乌斯扭结</h2>
+        <p id="scene-desc" class="text-xs text-slate-300 leading-relaxed">
+          由多层高密度拓扑网格构成的动态能量核心，外层包裹反向旋转的全息晶格，实时响应鼠标引力场与正弦波顶点形变。
+        </p>
+
+        <div class="h-px bg-white/10 my-0.5"></div>
+
+        <!-- Quick Action Triggers -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="btn-pulse" type="button" class="px-3 py-2 rounded-xl bg-gradient-to-r from-cyan-500/30 to-fuchsia-500/30 border border-cyan-400/40 hover:border-cyan-300 text-xs font-semibold text-white transition-all flex items-center justify-center gap-1.5 shadow-sm">
+            <span>⚡</span>
+            <span>能量脉冲</span>
+          </button>
+          <button id="btn-randomize" type="button" class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-medium text-slate-200 transition-all flex items-center justify-center gap-1.5">
+            <span>🎲</span>
+            <span>随机灵感</span>
+          </button>
+          <button id="btn-auto-orbit" type="button" class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-medium text-slate-200 transition-all flex items-center justify-center gap-1.5 active-chip">
+            <span>🔄</span>
+            <span id="orbit-label">自动巡航: 开</span>
+          </button>
+          <button id="btn-reset-cam" type="button" class="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/15 text-xs font-medium text-slate-200 transition-all flex items-center justify-center gap-1.5">
+            <span>🎯</span>
+            <span>重置视角</span>
+          </button>
+        </div>
+
+        <!-- Interactive Guide -->
+        <div class="rounded-xl bg-slate-950/60 border border-white/5 p-2.5 text-[11px] text-slate-400 space-y-1">
+          <div class="flex items-center justify-between">
+            <span>🖱️ 左键拖拽 / 单指滑动</span>
+            <span class="text-slate-200">360° 环绕旋转</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>🔍 滚轮缩放 / 双指捏合</span>
+            <span class="text-slate-200">推进 / 拉远镜头</span>
+          </div>
+          <div class="flex items-center justify-between">
+            <span>✨ 双击画布任意位置</span>
+            <span class="text-slate-200">爆发粒子冲击波</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Parameter Control Panel -->
+      <aside id="control-drawer" class="pointer-events-auto w-full sm:w-80 max-h-full overflow-y-auto custom-scroll glass-panel p-4 rounded-2xl flex flex-col gap-4 ml-auto">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200">3D 引擎实时参数控制</h3>
+          </div>
+          <button id="btn-collapse-panel" type="button" class="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded bg-white/5">
+            收起
+          </button>
+        </div>
+
+        <div id="control-body" class="flex flex-col gap-4">
+          <!-- 1. 3D Geometry Selector -->
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-2">核心几何形态 (GEOMETRY)</label>
+            <div class="grid grid-cols-3 gap-1.5" id="geometry-group">
+              <button type="button" data-geo="torusKnot" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all active-chip">
+                超维扭结
+              </button>
+              <button type="button" data-geo="crystal" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all">
+                量子晶簇
+              </button>
+              <button type="button" data-geo="galaxy" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all">
+                星云漩涡
+              </button>
+              <button type="button" data-geo="terrain" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all">
+                赛博矩阵
+              </button>
+              <button type="button" data-geo="helix" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all">
+                双螺旋环
+              </button>
+              <button type="button" data-geo="hypercube" class="geo-btn px-2.5 py-2 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 hover:text-white transition-all">
+                四维超体
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Material & Shader Mode -->
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-2">渲染材质模式 (MATERIAL)</label>
+            <div class="grid grid-cols-3 gap-1.5" id="material-group">
+              <button type="button" data-mat="hybrid" class="mat-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 transition-all active-chip">
+                全息混合
+              </button>
+              <button type="button" data-mat="wireframe" class="mat-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 transition-all">
+                霓虹线框
+              </button>
+              <button type="button" data-mat="solid" class="mat-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 transition-all">
+                流光金属
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. Color Palette Theme -->
+          <div>
+            <label class="block text-[11px] font-medium text-slate-400 mb-2">光影色彩矩阵 (PALETTE)</label>
+            <div class="grid grid-cols-2 gap-1.5" id="theme-group">
+              <button type="button" data-theme="cyber" class="theme-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 flex items-center gap-2 transition-all active-chip">
+                <span class="h-3 w-3 rounded-full bg-gradient-to-tr from-cyan-400 to-fuchsia-500"></span>
+                <span>赛博霓虹</span>
+              </button>
+              <button type="button" data-theme="aurora" class="theme-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 flex items-center gap-2 transition-all">
+                <span class="h-3 w-3 rounded-full bg-gradient-to-tr from-emerald-400 to-amber-400"></span>
+                <span>极光翡翠</span>
+              </button>
+              <button type="button" data-theme="solar" class="theme-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 flex items-center gap-2 transition-all">
+                <span class="h-3 w-3 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500"></span>
+                <span>日冕熔岩</span>
+              </button>
+              <button type="button" data-theme="holo" class="theme-btn px-2.5 py-1.5 rounded-xl border border-white/10 bg-white/5 text-xs font-medium text-slate-300 flex items-center gap-2 transition-all">
+                <span class="h-3 w-3 rounded-full bg-gradient-to-tr from-sky-400 to-indigo-500"></span>
+                <span>深空全息</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 4. Sliders -->
+          <div class="space-y-3 pt-1">
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300">自转角速度</span>
+                <span id="val-speed" class="font-mono-tech text-cyan-400">1.0x</span>
+              </div>
+              <input id="slider-speed" type="range" min="0" max="3" step="0.1" value="1.0" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300">波浪形变振幅</span>
+                <span id="val-morph" class="font-mono-tech text-cyan-400">45%</span>
+              </div>
+              <input id="slider-morph" type="range" min="0" max="100" step="1" value="45" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300">星尘力场缩放</span>
+                <span id="val-particles" class="font-mono-tech text-cyan-400">100%</span>
+              </div>
+              <input id="slider-particles" type="range" min="20" max="200" step="5" value="100" />
+            </div>
+
+            <div>
+              <div class="flex justify-between text-xs mb-1">
+                <span class="text-slate-300">多光源辉光强度</span>
+                <span id="val-light" class="font-mono-tech text-cyan-400">1.4x</span>
+              </div>
+              <input id="slider-light" type="range" min="0.2" max="3.0" step="0.1" value="1.4" />
+            </div>
+          </div>
+
+          <!-- Mobile Quick Action Row -->
+          <div class="grid grid-cols-2 gap-2 md:hidden pt-1">
+            <button id="btn-pulse-mobile" type="button" class="px-3 py-2 rounded-xl bg-cyan-500/25 border border-cyan-400/40 text-xs font-semibold text-white">
+              ⚡ 能量脉冲
+            </button>
+            <button id="btn-random-mobile" type="button" class="px-3 py-2 rounded-xl bg-white/10 border border-white/15 text-xs font-medium text-slate-200">
+              🎲 随机灵感
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Bottom Quick Preset Dock -->
+    <footer class="pointer-events-auto mx-auto mt-3 hidden sm:flex items-center gap-2 glass-pill px-3 py-2 rounded-2xl">
+      <span class="text-[11px] font-mono-tech text-slate-400 px-2">快捷视角:</span>
+      <button type="button" data-cam="front" class="cam-btn px-3 py-1 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/10 transition-all">
+        正视核心
+      </button>
+      <button type="button" data-cam="top" class="cam-btn px-3 py-1 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/10 transition-all">
+        天顶俯瞰
+      </button>
+      <button type="button" data-cam="wide" class="cam-btn px-3 py-1 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/10 transition-all">
+        深空广角
+      </button>
+      <button type="button" data-cam="close" class="cam-btn px-3 py-1 rounded-lg text-xs text-slate-300 hover:text-white hover:bg-white/10 transition-all">
+        微距沉浸
+      </button>
+    </footer>
+  </main>
+
+  <!-- Curated Showcase Gallery Modal / View -->
+  <section id="gallery-view" class="hidden fixed inset-0 z-20 pt-20 pb-8 px-4 md:px-10 flex items-center justify-center pointer-events-none">
+    <div class="pointer-events-auto max-w-4xl w-full glass-panel rounded-3xl p-6 md:p-8 max-h-full overflow-y-auto custom-scroll">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-6">
+        <div>
+          <span class="text-xs font-mono-tech uppercase tracking-widest text-cyan-400">CURATED 3D EXHIBITS</span>
+          <h2 class="text-xl md:text-2xl font-bold text-white mt-0.5">精选三维数字艺术展厅</h2>
+        </div>
+        <button id="btn-close-gallery" type="button" class="px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-medium text-slate-200 transition-all">
+          返回控制台 ✕
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- Exhibit 1 -->
+        <div class="rounded-2xl bg-slate-900/75 border border-white/10 p-4 flex flex-col justify-between hover:border-cyan-400/50 transition-all">
+          <div>
+            <div class="flex items-center justify-between text-xs font-mono-tech text-cyan-400 mb-2">
+              <span>EXHIBIT 01</span>
+              <span>CYBER NEON</span>
+            </div>
+            <h3 class="text-base font-bold text-white mb-1">赛博超维扭结 · 霓虹力场</h3>
+            <p class="text-xs text-slate-300 leading-relaxed mb-4">
+              高密度环面纽结配合青品红双色点光源，展现极具未来感的流体金属与全息网格双重交织效果。
+            </p>
+          </div>
+          <button type="button" data-preset="0" class="preset-card-btn w-full py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-xs font-semibold text-cyan-200 transition-all">
+            加载此 3D 场景 →
+          </button>
+        </div>
+
+        <!-- Exhibit 2 -->
+        <div class="rounded-2xl bg-slate-900/75 border border-white/10 p-4 flex flex-col justify-between hover:border-emerald-400/50 transition-all">
+          <div>
+            <div class="flex items-center justify-between text-xs font-mono-tech text-emerald-400 mb-2">
+              <span>EXHIBIT 02</span>
+              <span>AURORA EMERALD</span>
+            </div>
+            <h3 class="text-base font-bold text-white mb-1">极光螺旋星云 · 引力坍缩</h3>
+            <p class="text-xs text-slate-300 leading-relaxed mb-4">
+              模拟四旋臂星系粒子动力学轨迹，数千颗发光星尘围绕中心脉冲星高速旋转，支持近距离微距漫游。
+            </p>
+          </div>
+          <button type="button" data-preset="1" class="preset-card-btn w-full py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-xs font-semibold text-emerald-200 transition-all">
+            加载此 3D 场景 →
+          </button>
+        </div>
+
+        <!-- Exhibit 3 -->
+        <div class="rounded-2xl bg-slate-900/75 border border-white/10 p-4 flex flex-col justify-between hover:border-rose-400/50 transition-all">
+          <div>
+            <div class="flex items-center justify-between text-xs font-mono-tech text-rose-400 mb-2">
+              <span>EXHIBIT 03</span>
+              <span>SOLAR FLARE</span>
+            </div>
+            <h3 class="text-base font-bold text-white mb-1">日冕数字矩阵 · 脉冲方尖碑</h3>
+            <p class="text-xs text-slate-300 leading-relaxed mb-4">
+              实时正弦波数字地形矩阵与悬浮能量方尖碑，呈现复古合成波与现代 WebGL 几何光影的碰撞。
+            </p>
+          </div>
+          <button type="button" data-preset="2" class="preset-card-btn w-full py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-400/40 text-xs font-semibold text-rose-200 transition-all">
+            加载此 3D 场景 →
+          </button>
+        </div>
+
+        <!-- Exhibit 4 -->
+        <div class="rounded-2xl bg-slate-900/75 border border-white/10 p-4 flex flex-col justify-between hover:border-sky-400/50 transition-all">
+          <div>
+            <div class="flex items-center justify-between text-xs font-mono-tech text-sky-400 mb-2">
+              <span>EXHIBIT 04</span>
+              <span>DEEP SPACE HOLO</span>
+            </div>
+            <h3 class="text-base font-bold text-white mb-1">四维超立方体 · 量子晶格</h3>
+            <p class="text-xs text-slate-300 leading-relaxed mb-4">
+              多层嵌套正八面体与超立方体空间投影，纯净冰蓝全息线框风格，适合作为科技品牌交互背景。
+            </p>
+          </div>
+          <button type="button" data-preset="3" class="preset-card-btn w-full py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-xs font-semibold text-sky-200 transition-all">
+            加载此 3D 场景 →
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      // --- Scene Metadata & Palettes ---
+      const SCENE_META = {
+        torusKnot: {
+          badge: 'SCENE 01 // TORUS KNOT',
+          title: '超维莫比乌斯扭结',
+          desc: '由多层高密度拓扑网格构成的动态能量核心，外层包裹反向旋转的全息晶格，实时响应鼠标引力场与正弦波顶点形变。'
+        },
+        crystal: {
+          badge: 'SCENE 02 // QUANTUM CRYSTAL',
+          title: '量子多面体晶簇',
+          desc: '二十面体高折射核心配合环绕运行的卫星晶石与三轴能量轨道环，展现精密的几何对称美学。'
+        },
+        galaxy: {
+          badge: 'SCENE 03 // GALAXY VORTEX',
+          title: '深空引力星云漩涡',
+          desc: '由数千颗发光粒子组成的四旋臂动态星系，中心脉冲核释放周期性引力波，支持任意角度环绕穿行。'
+        },
+        terrain: {
+          badge: 'SCENE 04 // CYBER MATRIX',
+          title: '赛博数字波浪矩阵',
+          desc: '实时计算的二维频谱地形网格，中央悬浮暗物质方尖碑与全息扫描环，打造沉浸式数字地平线。'
+        },
+        helix: {
+          badge: 'SCENE 05 // BIO-HELIX',
+          title: '量子双螺旋能量链',
+          desc: '双股交织旋转的空间能量螺旋结构，节点随相位脉动发光，模拟微观生命密码与光子传输通道。'
+        },
+        hypercube: {
+          badge: 'SCENE 06 // TESSERACT',
+          title: '四维超立方体投影',
+          desc: '内外双层四维超立方体三维投影结构，通过八个顶点连接能量束，展现高维空间几何的深邃秩序。'
+        }
+      };
+
+      const PALETTES = {
+        cyber: {
+          primary: 0x00f3ff,
+          secondary: 0xff007f,
+          tertiary: 0x7928ca,
+          bg: 0x05070f,
+          cssAccent: '#00f3ff'
+        },
+        aurora: {
+          primary: 0x10b981,
+          secondary: 0xf59e0b,
+          tertiary: 0x06b6d4,
+          bg: 0x040d0c,
+          cssAccent: '#10b981'
+        },
+        solar: {
+          primary: 0xff4d4d,
+          secondary: 0xff9900,
+          tertiary: 0xd946ef,
+          bg: 0x0f0507,
+          cssAccent: '#ff4d4d'
+        },
+        holo: {
+          primary: 0x38bdf8,
+          secondary: 0x818cf8,
+          tertiary: 0xc084fc,
+          bg: 0x030712,
+          cssAccent: '#38bdf8'
+        }
+      };
+
+      const EXHIBITS = [
+        { geo: 'torusKnot', mat: 'hybrid', theme: 'cyber', speed: 1.0, morph: 45, particles: 100, light: 1.4, cam: { radius: 22, theta: 0.7, phi: 1.1 } },
+        { geo: 'galaxy', mat: 'hybrid', theme: 'aurora', speed: 1.5, morph: 65, particles: 145, light: 1.8, cam: { radius: 24, theta: 1.2, phi: 0.85 } },
+        { geo: 'terrain', mat: 'wireframe', theme: 'solar', speed: 1.2, morph: 75, particles: 90, light: 1.6, cam: { radius: 25, theta: 0.4, phi: 1.05 } },
+        { geo: 'hypercube', mat: 'hybrid', theme: 'holo', speed: 0.9, morph: 35, particles: 120, light: 1.5, cam: { radius: 20, theta: 0.9, phi: 1.15 } }
+      ];
+
+      // --- State ---
+      const state = {
+        geometry: 'torusKnot',
+        materialMode: 'hybrid',
+        theme: 'cyber',
+        rotationSpeed: 1.0,
+        morphAmount: 0.45,
+        particleScale: 1.0,
+        lightIntensity: 1.4,
+        autoOrbit: true,
+        audioEnabled: true,
+        panelCollapsed: false,
+        pulseEnergy: 0,
+        pointerX: 0,
+        pointerY: 0,
+        isDragging: false,
+        prevMouseX: 0,
+        prevMouseY: 0,
+        camRadius: 22,
+        targetCamRadius: 22,
+        camTheta: 0.75,
+        camPhi: 1.15,
+        targetTheta: 0.75,
+        targetPhi: 1.15
+      };
+
+      // --- Web Audio Synthesizer (Zero External Assets) ---
+      let audioCtx = null;
+      function playSynthSound(type) {
+        if (!state.audioEnabled) return;
+        try {
+          if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return;
+            audioCtx = new AudioContextClass();
+          }
+          if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+          }
+          const now = audioCtx.currentTime;
+          if (type === 'pulse') {
+            const freqs = [220, 329.63, 440, 659.25];
+            freqs.forEach((f, idx) => {
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.type = idx % 2 === 0 ? 'sine' : 'triangle';
+              osc.frequency.setValueAtTime(f, now);
+              osc.frequency.exponentialRampToValueAtTime(f * 1.5, now + 0.45);
+              gain.gain.setValueAtTime(0.06, now);
+              gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.start(now);
+              osc.stop(now + 0.52);
+            });
+          } else if (type === 'switch') {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(520, now);
+            osc.frequency.exponentialRampToValueAtTime(780, now + 0.14);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(now);
+            osc.stop(now + 0.17);
+          }
+        } catch (err) {
+          // Ignore audio errors on restricted environments
+        }
+      }
+
+      // --- Toast Notification ---
+      let toastTimer = null;
+      function showToast(message) {
+        const banner = document.getElementById('toast-banner');
+        const text = document.getElementById('toast-text');
+        if (!banner || !text) return;
+        text.textContent = message;
+        banner.classList.remove('opacity-0', '-translate-y-2');
+        banner.classList.add('opacity-100', 'translate-y-0');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          banner.classList.remove('opacity-100', 'translate-y-0');
+          banner.classList.add('opacity-0', '-translate-y-2');
+        }, 2200);
+      }
+
+      // --- Initialize Three.js Scene ---
+      const container = document.getElementById('webgl-container');
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(0x05070f, 0.018);
+
+      const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+
+      const renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: true
+      });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setClearColor(0x05070f, 1);
+      container.appendChild(renderer.domElement);
+
+      // Generate procedural soft glow particle texture on canvas
+      function createGlowTexture() {
+        const c = document.createElement('canvas');
+        c.width = 64;
+        c.height = 64;
+        const ctx = c.getContext('2d');
+        const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+        grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+        grad.addColorStop(0.7, 'rgba(255, 255, 255, 0.18)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+        return new THREE.CanvasTexture(c);
+      }
+      const glowTexture = createGlowTexture();
+
+      // --- Lighting Setup ---
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.45);
+      scene.add(ambientLight);
+
+      const pointLight1 = new THREE.PointLight(0x00f3ff, 2.2, 65);
+      pointLight1.position.set(14, 12, 14);
+      scene.add(pointLight1);
+
+      const pointLight2 = new THREE.PointLight(0xff007f, 2.2, 65);
+      pointLight2.position.set(-14, -12, 10);
+      scene.add(pointLight2);
+
+      const pointLight3 = new THREE.PointLight(0x7928ca, 1.6, 65);
+      pointLight3.position.set(0, 16, -14);
+      scene.add(pointLight3);
+
+      // --- Groups ---
+      const rootGroup = new THREE.Group();
+      scene.add(rootGroup);
+
+      const mainGeoGroup = new THREE.Group();
+      rootGroup.add(mainGeoGroup);
+
+      // --- Background Ambient Starfield ---
+      const STAR_COUNT = 3200;
+      const starGeo = new THREE.BufferGeometry();
+      const starPositions = new Float32Array(STAR_COUNT * 3);
+      const starColors = new Float32Array(STAR_COUNT * 3);
+      for (let i = 0; i < STAR_COUNT; i++) {
+        const r = 14 + Math.random() * 55;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        starPositions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        starPositions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        starPositions[i * 3 + 2] = r * Math.cos(phi);
+
+        starColors[i * 3] = 0.4 + Math.random() * 0.6;
+        starColors[i * 3 + 1] = 0.7 + Math.random() * 0.3;
+        starColors[i * 3 + 2] = 1.0;
+      }
+      starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+      starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+
+      const starMat = new THREE.PointsMaterial({
+        size: 0.42,
+        map: glowTexture,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      });
+      const starField = new THREE.Points(starGeo, starMat);
+      scene.add(starField);
+
+      // --- Shockwave Expanding Ring ---
+      const ringGeo = new THREE.RingGeometry(0.5, 0.85, 64);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0x00f3ff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending
+      });
+      const shockwaveRing = new THREE.Mesh(ringGeo, ringMat);
+      shockwaveRing.rotation.x = Math.PI / 2;
+      scene.add(shockwaveRing);
+
+      // --- Dynamic Deformable Mesh Tracking ---
+      let deformableMeshes = [];
+      let satelliteObjects = [];
+
+      function clearMainGroup() {
+        while (mainGeoGroup.children.length > 0) {
+          const child = mainGeoGroup.children[0];
+          mainGeoGroup.remove(child);
+          if (child.geometry) child.geometry.dispose();
+        }
+        deformableMeshes = [];
+        satelliteObjects = [];
+      }
+
+      function saveBaseVertices(geometry) {
+        const pos = geometry.attributes.position;
+        const copy = new Float32Array(pos.array.length);
+        copy.set(pos.array);
+        geometry.userData.basePositions = copy;
+      }
+
+      function createMaterials() {
+        const pal = PALETTES[state.theme];
+        const isWireOnly = state.materialMode === 'wireframe';
+        const isSolidOnly = state.materialMode === 'solid';
+
+        const solidMat = new THREE.MeshStandardMaterial({
+          color: pal.primary,
+          emissive: pal.tertiary,
+          emissiveIntensity: 0.28,
+          metalness: 0.65,
+          roughness: 0.2,
+          wireframe: isWireOnly,
+          flatShading: true
+        });
+
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: pal.secondary,
+          wireframe: true,
+          transparent: true,
+          opacity: isSolidOnly ? 0.0 : 0.48,
+          blending: THREE.AdditiveBlending
+        });
+
+        const accentMat = new THREE.MeshStandardMaterial({
+          color: pal.secondary,
+          emissive: pal.secondary,
+          emissiveIntensity: 0.45,
+          metalness: 0.8,
+          roughness: 0.15,
+          wireframe: isWireOnly
+        });
+
+        return { solidMat, wireMat, accentMat, pal };
+      }
+
+      function buildGeometryScene() {
+        clearMainGroup();
+        const { solidMat, wireMat, accentMat, pal } = createMaterials();
+        const mode = state.geometry;
+
+        if (mode === 'torusKnot') {
+          const geo = new THREE.TorusKnotGeometry(4.8, 1.35, 160, 24, 2, 3);
+          saveBaseVertices(geo);
+          const mesh = new THREE.Mesh(geo, solidMat);
+          mainGeoGroup.add(mesh);
+          deformableMeshes.push(mesh);
+
+          if (state.materialMode !== 'solid') {
+            const outerGeo = new THREE.TorusKnotGeometry(5.05, 1.42, 96, 14, 2, 3);
+            const outerWire = new THREE.Mesh(outerGeo, wireMat);
+            mainGeoGroup.add(outerWire);
+            satelliteObjects.push({ mesh: outerWire, rotSpeed: { x: -0.004, y: 0.006, z: 0 } });
+          }
+
+          // Inner glowing core
+          const coreGeo = new THREE.IcosahedronGeometry(2.1, 2);
+          const coreMesh = new THREE.Mesh(coreGeo, accentMat);
+          mainGeoGroup.add(coreMesh);
+          satelliteObjects.push({ mesh: coreMesh, rotSpeed: { x: 0.015, y: -0.015, z: 0.01 } });
+
+        } else if (mode === 'crystal') {
+          const coreGeo = new THREE.IcosahedronGeometry(5.2, 3);
+          saveBaseVertices(coreGeo);
+          const coreMesh = new THREE.Mesh(coreGeo, solidMat);
+          mainGeoGroup.add(coreMesh);
+          deformableMeshes.push(coreMesh);
+
+          const cageGeo = new THREE.IcosahedronGeometry(6.3, 1);
+          const cageMesh = new THREE.Mesh(cageGeo, wireMat);
+          mainGeoGroup.add(cageMesh);
+          satelliteObjects.push({ mesh: cageMesh, rotSpeed: { x: -0.005, y: -0.008, z: 0.003 } });
+
+          // Orbiting crystal shards
+          for (let i = 0; i < 12; i++) {
+            const shardGeo = new THREE.OctahedronGeometry(0.75, 0);
+            const shard = new THREE.Mesh(shardGeo, accentMat);
+            const angle = (i / 12) * Math.PI * 2;
+            const r = 8.8;
+            shard.position.set(Math.cos(angle) * r, Math.sin(angle * 2) * 2.2, Math.sin(angle) * r);
+            mainGeoGroup.add(shard);
+            satelliteObjects.push({
+              mesh: shard,
+              orbitAngle: angle,
+              orbitRadius: r,
+              orbitY: Math.sin(angle * 2) * 2.2,
+              rotSpeed: { x: 0.02, y: 0.03, z: 0 }
+            });
+          }
+
+        } else if (mode === 'galaxy') {
+          const count = 4500;
+          const gGeo = new THREE.BufferGeometry();
+          const pos = new Float32Array(count * 3);
+          const col = new Float32Array(count * 3);
+          const c1 = new THREE.Color(pal.primary);
+          const c2 = new THREE.Color(pal.secondary);
+
+          for (let i = 0; i < count; i++) {
+            const arm = i % 4;
+            const radius = Math.pow(Math.random(), 1.3) * 12.5;
+            const spinAngle = radius * 1.15;
+            const branchAngle = (arm / 4) * Math.PI * 2;
+
+            const randomX = (Math.random() - 0.5) * 1.6 * (1 - radius / 15);
+            const randomY = (Math.random() - 0.5) * 1.2 * (1 - radius / 14);
+            const randomZ = (Math.random() - 0.5) * 1.6 * (1 - radius / 15);
+
+            pos[i * 3] = Math.cos(branchAngle + spinAngle) * radius + randomX;
+            pos[i * 3 + 1] = randomY;
+            pos[i * 3 + 2] = Math.sin(branchAngle + spinAngle) * radius + randomZ;
+
+            const mixed = c1.clone().lerp(c2, radius / 12.5);
+            col[i * 3] = mixed.r;
+            col[i * 3 + 1] = mixed.g;
+            col[i * 3 + 2] = mixed.b;
+          }
+          gGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+          gGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+          saveBaseVertices(gGeo);
+
+          const gMat = new THREE.PointsMaterial({
+            size: 0.45,
+            map: glowTexture,
+            vertexColors: true,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+          });
+          const galaxyPoints = new THREE.Points(gGeo, gMat);
+          mainGeoGroup.add(galaxyPoints);
+          deformableMeshes.push(galaxyPoints);
+
+          // Central Pulsar Sphere
+          const pulsarGeo = new THREE.SphereGeometry(1.8, 32, 32);
+          const pulsarMesh = new THREE.Mesh(pulsarGeo, accentMat);
+          mainGeoGroup.add(pulsarMesh);
+
+        } else if (mode === 'terrain') {
+          const planeGeo = new THREE.PlaneGeometry(24, 24, 48, 48);
+          planeGeo.rotateX(-Math.PI / 2);
+          saveBaseVertices(planeGeo);
+
+          const terrainMesh = new THREE.Mesh(planeGeo, solidMat);
+          terrainMesh.position.y = -3.2;
+          mainGeoGroup.add(terrainMesh);
+          deformableMeshes.push(terrainMesh);
+
+          const wirePlaneGeo = new THREE.PlaneGeometry(24, 24, 24, 24);
+          wirePlaneGeo.rotateX(-Math.PI / 2);
+          saveBaseVertices(wirePlaneGeo);
+          const wireTerrain = new THREE.Mesh(wirePlaneGeo, wireMat);
+          wireTerrain.position.y = -3.15;
+          mainGeoGroup.add(wireTerrain);
+          deformableMeshes.push(wireTerrain);
+
+          // Floating Monolith
+          const monoGeo = new THREE.OctahedronGeometry(3.4, 0);
+          const monoMesh = new THREE.Mesh(monoGeo, accentMat);
+          monoMesh.position.y = 2.6;
+          monoMesh.scale.set(0.85, 1.65, 0.85);
+          mainGeoGroup.add(monoMesh);
+          satelliteObjects.push({ mesh: monoMesh, rotSpeed: { x: 0, y: 0.015, z: 0 } });
+
+        } else if (mode === 'helix') {
+          const strandCount = 36;
+          for (let i = 0; i < strandCount; i++) {
+            const t = (i / strandCount) * Math.PI * 4 - Math.PI * 2;
+            const y = (i / strandCount) * 14 - 7;
+            const r = 4.2;
+
+            const sGeo1 = new THREE.SphereGeometry(0.42, 16, 16);
+            const node1 = new THREE.Mesh(sGeo1, solidMat);
+            node1.position.set(Math.cos(t) * r, y, Math.sin(t) * r);
+            mainGeoGroup.add(node1);
+            satelliteObjects.push({ mesh: node1, baseT: t, baseY: y, strand: 1 });
+
+            const sGeo2 = new THREE.SphereGeometry(0.42, 16, 16);
+            const node2 = new THREE.Mesh(sGeo2, accentMat);
+            node2.position.set(Math.cos(t + Math.PI) * r, y, Math.sin(t + Math.PI) * r);
+            mainGeoGroup.add(node2);
+            satelliteObjects.push({ mesh: node2, baseT: t + Math.PI, baseY: y, strand: 2 });
+
+            if (i % 2 === 0) {
+              const barGeo = new THREE.CylinderGeometry(0.08, 0.08, r * 2, 8);
+              barGeo.rotateZ(Math.PI / 2);
+              const bar = new THREE.Mesh(barGeo, wireMat);
+              bar.position.set(0, y, 0);
+              bar.rotation.y = -t;
+              mainGeoGroup.add(bar);
+            }
+          }
+
+        } else if (mode === 'hypercube') {
+          const outerBox = new THREE.BoxGeometry(7.2, 7.2, 7.2, 6, 6, 6);
+          saveBaseVertices(outerBox);
+          const outerMesh = new THREE.Mesh(outerBox, wireMat.opacity > 0 ? wireMat : solidMat);
+          mainGeoGroup.add(outerMesh);
+          deformableMeshes.push(outerMesh);
+
+          const innerBox = new THREE.BoxGeometry(3.8, 3.8, 3.8, 4, 4, 4);
+          saveBaseVertices(innerBox);
+          const innerMesh = new THREE.Mesh(innerBox, solidMat);
+          mainGeoGroup.add(innerMesh);
+          deformableMeshes.push(innerMesh);
+          satelliteObjects.push({ mesh: innerMesh, rotSpeed: { x: 0.012, y: -0.015, z: 0.008 } });
+
+          // Connecting struts between inner and outer vertices
+          const corners = [
+            [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1],
+            [-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1]
+          ];
+          const linePoints = [];
+          corners.forEach(c => {
+            linePoints.push(new THREE.Vector3(c[0] * 1.9, c[1] * 1.9, c[2] * 1.9));
+            linePoints.push(new THREE.Vector3(c[0] * 3.6, c[1] * 3.6, c[2] * 3.6));
+          });
+          const connectorGeo = new THREE.BufferGeometry().setFromPoints(linePoints);
+          const connectorLines = new THREE.LineSegments(
+            connectorGeo,
+            new THREE.LineBasicMaterial({ color: pal.secondary, transparent: true, opacity: 0.75 })
+          );
+          mainGeoGroup.add(connectorLines);
+        }
+
+        // Update UI descriptions
+        const meta = SCENE_META[mode];
+        if (meta) {
+          document.getElementById('scene-badge').textContent = meta.badge;
+          document.getElementById('scene-title').textContent = meta.title;
+          document.getElementById('scene-desc').textContent = meta.desc;
+        }
+        document.getElementById('render-badge').textContent = state.materialMode.toUpperCase() + ' SHADER';
+      }
+
+      function applyThemePalette() {
+        const pal = PALETTES[state.theme];
+        document.documentElement.style.setProperty('--accent-color', pal.cssAccent);
+        renderer.setClearColor(pal.bg, 1);
+        scene.fog.color.setHex(pal.bg);
+        pointLight1.color.setHex(pal.primary);
+        pointLight2.color.setHex(pal.secondary);
+        pointLight3.color.setHex(pal.tertiary);
+        ringMat.color.setHex(pal.primary);
+        buildGeometryScene();
+      }
+
+      // Build initial scene
+      applyThemePalette();
+
+      // --- Trigger Pulse Shockwave ---
+      function triggerShockwave() {
+        state.pulseEnergy = 1.0;
+        shockwaveRing.scale.set(1, 1, 1);
+        ringMat.opacity = 0.9;
+        playSynthSound('pulse');
+        showToast('⚡ 已释放超维引力冲击波');
+      }
+
+      // --- Pointer & Camera Orbit Controls ---
+      container.addEventListener('pointerdown', (e) => {
+        state.isDragging = true;
+        state.prevMouseX = e.clientX;
+        state.prevMouseY = e.clientY;
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        state.pointerX = (e.clientX / window.innerWidth) * 2 - 1;
+        state.pointerY = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        if (!state.isDragging) return;
+        const dx = e.clientX - state.prevMouseX;
+        const dy = e.clientY - state.prevMouseY;
+        state.prevMouseX = e.clientX;
+        state.prevMouseY = e.clientY;
+
+        state.targetTheta -= dx * 0.007;
+        state.targetPhi = Math.max(0.2, Math.min(Math.PI - 0.2, state.targetPhi - dy * 0.007));
+      });
+
+      window.addEventListener('pointerup', () => {
+        state.isDragging = false;
+      });
+
+      container.addEventListener('dblclick', () => {
+        triggerShockwave();
+      });
+
+      container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        state.targetCamRadius = Math.max(8, Math.min(48, state.targetCamRadius + e.deltaY * 0.018));
+      }, { passive: false });
+
+      // --- UI Controls Event Binding ---
+      // 1. Geometry buttons
+      document.querySelectorAll('.geo-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.geo-btn').forEach(b => b.classList.remove('active-chip'));
+          btn.classList.add('active-chip');
+          state.geometry = btn.getAttribute('data-geo');
+          playSynthSound('switch');
+          buildGeometryScene();
+        });
+      });
+
+      // 2. Material buttons
+      document.querySelectorAll('.mat-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.mat-btn').forEach(b => b.classList.remove('active-chip'));
+          btn.classList.add('active-chip');
+          state.materialMode = btn.getAttribute('data-mat');
+          playSynthSound('switch');
+          buildGeometryScene();
+        });
+      });
+
+      // 3. Theme buttons
+      document.querySelectorAll('.theme-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active-chip'));
+          btn.classList.add('active-chip');
+          state.theme = btn.getAttribute('data-theme');
+          playSynthSound('switch');
+          applyThemePalette();
+        });
+      });
+
+      // 4. Sliders
+      const sliderSpeed = document.getElementById('slider-speed');
+      const valSpeed = document.getElementById('val-speed');
+      sliderSpeed.addEventListener('input', (e) => {
+        state.rotationSpeed = parseFloat(e.target.value);
+        valSpeed.textContent = state.rotationSpeed.toFixed(1) + 'x';
+      });
+
+      const sliderMorph = document.getElementById('slider-morph');
+      const valMorph = document.getElementById('val-morph');
+      sliderMorph.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10);
+        state.morphAmount = v / 100;
+        valMorph.textContent = v + '%';
+      });
+
+      const sliderParticles = document.getElementById('slider-particles');
+      const valParticles = document.getElementById('val-particles');
+      sliderParticles.addEventListener('input', (e) => {
+        const v = parseInt(e.target.value, 10);
+        state.particleScale = v / 100;
+        valParticles.textContent = v + '%';
+        starField.scale.setScalar(state.particleScale);
+        document.getElementById('hud-particles').textContent = Math.round(STAR_COUNT * state.particleScale).toLocaleString();
+      });
+
+      const sliderLight = document.getElementById('slider-light');
+      const valLight = document.getElementById('val-light');
+      sliderLight.addEventListener('input', (e) => {
+        state.lightIntensity = parseFloat(e.target.value);
+        valLight.textContent = state.lightIntensity.toFixed(1) + 'x';
+        pointLight1.intensity = 1.6 * state.lightIntensity;
+        pointLight2.intensity = 1.6 * state.lightIntensity;
+        pointLight3.intensity = 1.1 * state.lightIntensity;
+      });
+
+      // 5. Quick Actions
+      document.getElementById('btn-pulse').addEventListener('click', triggerShockwave);
+      document.getElementById('btn-pulse-mobile').addEventListener('click', triggerShockwave);
+
+      function randomizeScene() {
+        const geos = Object.keys(SCENE_META);
+        const themes = Object.keys(PALETTES);
+        const mats = ['hybrid', 'wireframe', 'solid'];
+
+        state.geometry = geos[Math.floor(Math.random() * geos.length)];
+        state.theme = themes[Math.floor(Math.random() * themes.length)];
+        state.materialMode = mats[Math.floor(Math.random() * mats.length)];
+        state.rotationSpeed = parseFloat((0.5 + Math.random() * 2.0).toFixed(1));
+        const morphPct = Math.floor(20 + Math.random() * 75);
+        state.morphAmount = morphPct / 100;
+
+        // Sync UI chips
+        document.querySelectorAll('.geo-btn').forEach(b => {
+          b.classList.toggle('active-chip', b.getAttribute('data-geo') === state.geometry);
+        });
+        document.querySelectorAll('.theme-btn').forEach(b => {
+          b.classList.toggle('active-chip', b.getAttribute('data-theme') === state.theme);
+        });
+        document.querySelectorAll('.mat-btn').forEach(b => {
+          b.classList.toggle('active-chip', b.getAttribute('data-mat') === state.materialMode);
+        });
+        sliderSpeed.value = state.rotationSpeed;
+        valSpeed.textContent = state.rotationSpeed.toFixed(1) + 'x';
+        sliderMorph.value = morphPct;
+        valMorph.textContent = morphPct + '%';
+
+        applyThemePalette();
+        triggerShockwave();
+        showToast('🎲 已随机生成全新 3D 艺术组合');
+      }
+
+      document.getElementById('btn-randomize').addEventListener('click', randomizeScene);
+      document.getElementById('btn-random-mobile').addEventListener('click', randomizeScene);
+
+      const btnAutoOrbit = document.getElementById('btn-auto-orbit');
+      const orbitLabel = document.getElementById('orbit-label');
+      btnAutoOrbit.addEventListener('click', () => {
+        state.autoOrbit = !state.autoOrbit;
+        btnAutoOrbit.classList.toggle('active-chip', state.autoOrbit);
+        orbitLabel.textContent = state.autoOrbit ? '自动巡航: 开' : '自动巡航: 关';
+        playSynthSound('switch');
+      });
+
+      document.getElementById('btn-reset-cam').addEventListener('click', () => {
+        state.targetCamRadius = 22;
+        state.targetTheta = 0.75;
+        state.targetPhi = 1.15;
+        playSynthSound('switch');
+        showToast('🎯 镜头视角已复位');
+      });
+
+      // Camera preset dock buttons
+      document.querySelectorAll('.cam-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const preset = btn.getAttribute('data-cam');
+          if (preset === 'front') {
+            state.targetCamRadius = 20;
+            state.targetTheta = 0;
+            state.targetPhi = Math.PI / 2;
+          } else if (preset === 'top') {
+            state.targetCamRadius = 24;
+            state.targetTheta = 0.5;
+            state.targetPhi = 0.25;
+          } else if (preset === 'wide') {
+            state.targetCamRadius = 38;
+            state.targetTheta = 1.1;
+            state.targetPhi = 1.05;
+          } else if (preset === 'close') {
+            state.targetCamRadius = 11;
+            state.targetTheta = 0.4;
+            state.targetPhi = 1.3;
+          }
+          playSynthSound('switch');
+        });
+      });
+
+      // Collapse/Expand Right Control Drawer
+      const btnCollapse = document.getElementById('btn-collapse-panel');
+      const controlBody = document.getElementById('control-body');
+      btnCollapse.addEventListener('click', () => {
+        state.panelCollapsed = !state.panelCollapsed;
+        controlBody.classList.toggle('hidden', state.panelCollapsed);
+        btnCollapse.textContent = state.panelCollapsed ? '展开' : '收起';
+      });
+
+      // Top Navigation View Modes (Studio / Gallery / Zen)
+      const tabStudio = document.getElementById('tab-studio');
+      const tabGallery = document.getElementById('tab-gallery');
+      const tabZen = document.getElementById('tab-zen');
+      const studioHud = document.getElementById('studio-hud');
+      const galleryView = document.getElementById('gallery-view');
+      const topBar = document.getElementById('top-bar');
+      const btnExitZen = document.getElementById('btn-exit-zen');
+
+      function setViewMode(mode) {
+        [tabStudio, tabGallery, tabZen].forEach(t => t.classList.remove('active-chip'));
+        if (mode === 'studio') {
+          tabStudio.classList.add('active-chip');
+          studioHud.classList.remove('hidden');
+          galleryView.classList.add('hidden');
+          topBar.classList.remove('opacity-0', 'pointer-events-none');
+          btnExitZen.classList.add('hidden');
+        } else if (mode === 'gallery') {
+          tabGallery.classList.add('active-chip');
+          studioHud.classList.add('hidden');
+          galleryView.classList.remove('hidden');
+          topBar.classList.remove('opacity-0', 'pointer-events-none');
+          btnExitZen.classList.add('hidden');
+        } else if (mode === 'zen') {
+          tabZen.classList.add('active-chip');
+          studioHud.classList.add('hidden');
+          galleryView.classList.add('hidden');
+          topBar.classList.add('opacity-0', 'pointer-events-none');
+          btnExitZen.classList.remove('hidden');
+          showToast('✨ 已进入纯净全屏模式，双击画布可释放脉冲');
+        }
+        playSynthSound('switch');
+      }
+
+      tabStudio.addEventListener('click', () => setViewMode('studio'));
+      tabGallery.addEventListener('click', () => setViewMode('gallery'));
+      tabZen.addEventListener('click', () => setViewMode('zen'));
+      btnExitZen.addEventListener('click', () => setViewMode('studio'));
+      document.getElementById('btn-close-gallery').addEventListener('click', () => setViewMode('studio'));
+
+      // Gallery Exhibit Loader
+      document.querySelectorAll('.preset-card-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const idx = parseInt(btn.getAttribute('data-preset'), 10);
+          const p = EXHIBITS[idx];
+          if (!p) return;
+          state.geometry = p.geo;
+          state.materialMode = p.mat;
+          state.theme = p.theme;
+          state.rotationSpeed = p.speed;
+          state.morphAmount = p.morph / 100;
+          state.targetCamRadius = p.cam.radius;
+          state.targetTheta = p.cam.theta;
+          state.targetPhi = p.cam.phi;
+
+          // Update controls UI
+          document.querySelectorAll('.geo-btn').forEach(b => b.classList.toggle('active-chip', b.getAttribute('data-geo') === state.geometry));
+          document.querySelectorAll('.mat-btn').forEach(b => b.classList.toggle('active-chip', b.getAttribute('data-mat') === state.materialMode));
+          document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active-chip', b.getAttribute('data-theme') === state.theme));
+          sliderSpeed.value = p.speed;
+          valSpeed.textContent = p.speed.toFixed(1) + 'x';
+          sliderMorph.value = p.morph;
+          valMorph.textContent = p.morph + '%';
+
+          applyThemePalette();
+          setViewMode('studio');
+          triggerShockwave();
+        });
+      });
+
+      // Audio Toggle
+      const btnAudioToggle = document.getElementById('btn-audio-toggle');
+      const audioIcon = document.getElementById('audio-icon');
+      const audioLabel = document.getElementById('audio-label');
+      btnAudioToggle.addEventListener('click', () => {
+        state.audioEnabled = !state.audioEnabled;
+        audioIcon.textContent = state.audioEnabled ? '🔊' : '🔇';
+        audioLabel.textContent = state.audioEnabled ? '音效开启' : '音效静音';
+        showToast(state.audioEnabled ? '🔊 合成器交互音效已开启' : '🔇 合成器交互音效已静音');
+      });
+
+      // Snapshot Download
+      document.getElementById('btn-snapshot').addEventListener('click', () => {
+        renderer.render(scene, camera);
+        const dataUrl = renderer.domElement.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'neo-prism-3d-' + Date.now() + '.png';
+        link.href = dataUrl;
+        link.click();
+        playSynthSound('switch');
+        showToast('📸 已导出高清 3D 渲染快照');
+      });
+
+      // --- Window Resize ---
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      // --- Animation & Physics Loop ---
+      let lastTime = performance.now();
+      let frameCount = 0;
+      const hudFps = document.getElementById('hud-fps');
+      const hudCoords = document.getElementById('hud-coords');
+
+      function animate(now) {
+        requestAnimationFrame(animate);
+
+        frameCount++;
+        if (now - lastTime >= 500) {
+          const fps = Math.min(60, Math.round((frameCount * 1000) / (now - lastTime)));
+          if (hudFps) hudFps.textContent = String(fps);
+          frameCount = 0;
+          lastTime = now;
+
+          if (hudCoords) {
+            const degTheta = Math.round(((state.camTheta % (Math.PI * 2)) * 180) / Math.PI);
+            const degPhi = Math.round((state.camPhi * 180) / Math.PI);
+            hudCoords.textContent = degTheta + '° / ' + degPhi + '°';
+          }
+        }
+
+        const t = now * 0.001;
+
+        // Smooth camera orbit interpolation
+        if (state.autoOrbit && !state.isDragging) {
+          state.targetTheta += 0.0032 * state.rotationSpeed;
+        }
+        state.camTheta += (state.targetTheta - state.camTheta) * 0.08;
+        state.camPhi += (state.targetPhi - state.camPhi) * 0.08;
+        state.camRadius += (state.targetCamRadius - state.camRadius) * 0.08;
+
+        camera.position.x = state.camRadius * Math.sin(state.camPhi) * Math.sin(state.camTheta);
+        camera.position.y = state.camRadius * Math.cos(state.camPhi);
+        camera.position.z = state.camRadius * Math.sin(state.camPhi) * Math.cos(state.camTheta);
+        camera.lookAt(0, 0, 0);
+
+        // Rotate main group & subtle pointer parallax tilt
+        mainGeoGroup.rotation.y += 0.0045 * state.rotationSpeed;
+        mainGeoGroup.rotation.x = THREE.MathUtils.lerp(mainGeoGroup.rotation.x, state.pointerY * 0.35, 0.05);
+        mainGeoGroup.rotation.z = THREE.MathUtils.lerp(mainGeoGroup.rotation.z, -state.pointerX * 0.35, 0.05);
+
+        // Decay pulse shockwave
+        if (state.pulseEnergy > 0.001) {
+          state.pulseEnergy *= 0.94;
+          const s = 1 + (1 - state.pulseEnergy) * 26;
+          shockwaveRing.scale.set(s, s, 1);
+          ringMat.opacity = state.pulseEnergy * 0.85;
+        } else {
+          state.pulseEnergy = 0;
+          ringMat.opacity = 0;
+        }
+
+        // Real-time Vertex Wave Morphing
+        const morphAmp = state.morphAmount + state.pulseEnergy * 0.85;
+        deformableMeshes.forEach(mesh => {
+          const geo = mesh.geometry;
+          const base = geo.userData.basePositions;
+          if (!base) return;
+          const pos = geo.attributes.position;
+          const arr = pos.array;
+
+          if (state.geometry === 'terrain') {
+            for (let i = 0; i < arr.length; i += 3) {
+              const bx = base[i];
+              const bz = base[i + 2];
+              const dist = Math.sqrt(bx * bx + bz * bz);
+              arr[i + 1] = Math.sin(dist * 0.55 - t * 2.4) * 1.8 * morphAmp + Math.cos(bx * 0.4 + t) * 0.6 * morphAmp;
+            }
+          } else {
+            for (let i = 0; i < arr.length; i += 3) {
+              const bx = base[i];
+              const by = base[i + 1];
+              const bz = base[i + 2];
+              const wave = 1 + Math.sin(bx * 0.45 + t * 2.2) * Math.cos(by * 0.45 + t * 1.8) * 0.22 * morphAmp;
+              arr[i] = bx * wave;
+              arr[i + 1] = by * wave;
+              arr[i + 2] = bz * wave;
+            }
+          }
+          pos.needsUpdate = true;
+        });
+
+        // Animate Satellites / Helix Strands
+        satelliteObjects.forEach((sat, idx) => {
+          if (sat.rotSpeed) {
+            sat.mesh.rotation.x += sat.rotSpeed.x * state.rotationSpeed;
+            sat.mesh.rotation.y += sat.rotSpeed.y * state.rotationSpeed;
+            sat.mesh.rotation.z += sat.rotSpeed.z * state.rotationSpeed;
+          }
+          if (sat.orbitRadius !== undefined) {
+            const a = sat.orbitAngle + t * 0.6 * state.rotationSpeed;
+            sat.mesh.position.x = Math.cos(a) * sat.orbitRadius;
+            sat.mesh.position.z = Math.sin(a) * sat.orbitRadius;
+            sat.mesh.position.y = sat.orbitY + Math.sin(t * 2 + idx) * 0.8;
+          }
+          if (sat.strand !== undefined) {
+            const pulseScale = 1 + Math.sin(t * 3 + sat.baseT) * 0.35 * morphAmp;
+            sat.mesh.scale.setScalar(pulseScale);
+          }
+        });
+
+        // Starfield gentle drift
+        starField.rotation.y = -t * 0.04 * state.rotationSpeed;
+        starField.rotation.x = Math.sin(t * 0.15) * 0.08;
+
+        renderer.render(scene, camera);
+      }
+
+      requestAnimationFrame(animate);
+    })();
+  </script>
+</body>
+</html>
